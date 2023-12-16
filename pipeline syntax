@@ -1,0 +1,75 @@
+pipeline{
+    agent any
+    tools{
+        jdk 'jdk17'
+        maven 'maven3'
+    }
+    environment {
+        SCANNER_HOME=tool 'sonar-scanner'
+    }
+    stages{
+        stage('clean workspace'){
+            steps{
+                cleanWs()
+            }
+        }
+        stage('checkout scm'){
+            steps{
+                git 'https://github.com/Aj7Ay/jpetstore-6.git'
+            }
+        }
+        stage('maven compile'){
+            steps{
+                sh 'mvn clean compile'
+            }
+        }
+        stage('maven test'){
+            steps{
+                sh 'mvn test'
+            }
+        }
+        stage("Sonarqube Analysis "){
+            steps{
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Petshop \
+                    -Dsonar.java.binaries=. \
+                    -Dsonar.projectKey=Petshop '''
+                }
+            }
+        }
+         stage('build war file'){
+            steps{
+                sh 'mvn package'
+            }
+        }
+        stage('OWASP dependency check'){
+            steps{
+                dependencyCheck additionalArguments: '--scan ./ --format XML ', odcInstallation: 'Dp-check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage('checkout'){
+            steps{
+                checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/srinaidu-24/jpetstore-6.git']])
+            }
+        }
+        stage('nexus artifact uploader'){
+            steps{
+                nexusArtifactUploader artifacts: [[artifactId: 'jpetstore', classifier: '', file: '/var/lib/jenkins/workspace/petshop/target/jpetstore.war', type: 'war']], credentialsId: 'nexus', groupId: 'org.mybatis', nexusUrl: '43.204.231.20:8081', nexusVersion: 'nexus3', protocol: 'http', repository: 'maven-snapshots', version: '6.1.1-SNAPSHOT'
+            }
+        }
+        stage('deploy to tomcat'){
+            steps{
+                deploy adapters: [tomcat9(credentialsId: 'tomcat', path: '', url: 'http://13.233.197.93:8080/')], contextPath: null, war: '**/*.war'
+            }
+        }
+    }
+    post{
+        success{
+            emailext body: 'from Jenkins', subject: 'Success', to: 'ramisettisrilatha35@gmail.com'
+        }
+        failure{
+            emailext body: 'from Jenkins', subject: 'Failure', to: 'ramisettisrilatha35@gmail.com'
+        }
+    }
+}
